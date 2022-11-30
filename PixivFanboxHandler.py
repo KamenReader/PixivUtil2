@@ -219,6 +219,8 @@ def process_fanbox_post(caller, config, post: PixivModelFanbox.FanboxPost, artis
         filename = PixivHelper.sanitize_filename(filename, config.rootDirectory)
         if config.writeImageInfo:
             post.WriteInfo(filename + ".txt")
+        if config.writeComments:
+            post.WriteComments(filename)
         if config.writeHtml:
             if post.type == "article" or (len(post.images) >= config.minImageCountForNonArticle and len(post.body_text) > config.minTextLengthForNonArticle):
                 html_template = PixivConstant.HTML_TEMPLATE

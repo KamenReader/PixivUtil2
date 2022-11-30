@@ -4,6 +4,7 @@ import codecs
 import os
 import re
 import sys
+import json
 from typing import List
 
 import demjson3
@@ -34,6 +35,8 @@ class FanboxPost(object):
     parent = None
     is_restricted = False
     feeRequired = 0
+    commenttext = ""
+    commenttime = ""
     # compatibility
     imageMode = ""
     imageCount = 0
@@ -71,7 +74,7 @@ class FanboxPost(object):
         # Issue #1094
         if not self.is_restricted and "body" in page:
             self.parseBody(page)
-
+            self.parseComments(page)
             if self.type == 'image':
                 self.parseImages(page)
             if self.type == 'file':
@@ -89,8 +92,9 @@ class FanboxPost(object):
             return f"FanboxPost({self.imageId}, {self.imageTitle}, {self.type}, {self.feeRequired})"
 
     def parsePost(self, jsPost):
+        with open('postjson.txt', 'w', encoding='utf-8') as f:
+            json.dump(jsPost, f, indent=4, ensure_ascii=False)
         self.imageTitle = jsPost["title"]
-
         # Issue 1181
         if jsPost.get("coverImageUrl"):
             coverUrl = jsPost["coverImageUrl"]
@@ -99,6 +103,7 @@ class FanboxPost(object):
               coverUrl = jsPost["cover"]["url"]
            else:
               coverUrl = None
+
         # Issue #930
         if not self.coverImageUrl and coverUrl:
             self.coverImageUrl = _re_fanbox_cover.sub("fanbox", coverUrl)
@@ -400,6 +405,28 @@ class FanboxPost(object):
             self.try_add(image["url"], self.images)
             self.try_add(image["url"], self.embeddedFiles)
 
+    def parseComments(self, jsPost):
+        # Experimental comment stuff
+        comments = jsPost["commentList"]["items"]
+        self.commenttime = "2000-01-01T00:00:00+09:00"
+        self.commenttext = ""
+        if len(comments) >= 1:
+            for item in comments:
+                self.commenttext += "User: " + item["user"]["name"] + " (" + item["user"]["userId"] + ")\n"
+                self.commenttext += "Timestamp: " + item["createdDatetime"] + "\n"
+                if item["createdDatetime"] > self.commenttime:
+                    self.commenttime = item["createdDatetime"]
+                self.commenttext += "Body: \n" + item["body"] + "\n\n"
+                if len(item["replies"]) >= 1:
+                    self.commenttext += "Replies: \n"
+                    for reply in item["replies"]:
+                        self.commenttext += "\tUser: " + reply["user"]["name"] + " (" + reply["user"]["userId"] + ")\n"
+                        self.commenttext += "\tTimestamp: " + reply["createdDatetime"] + "\n"
+                        if reply["createdDatetime"] > self.commenttime:
+                            self.commenttime = reply["createdDatetime"]
+                        self.commenttext += "\tBody: \n\t" + (reply["body"]).replace("\n","\n\t") + "\n\n"
+
+
     def try_add(self, item, list_data):
         if self.coverImageUrl == item:
             return
@@ -449,6 +476,20 @@ class FanboxPost(object):
                 info.write(" - {0}\r\n".format(link))
         info.close()
 
+    def WriteComments(self, filename):
+        commentfilename = filename + "-comments-" + self.commenttime.replace(":","-") + ".txt"
+        print("Attempting to write to " + commentfilename + "\n")
+        if not os.path.exists(commentfilename) and self.commenttext != "":
+            try:
+                PixivHelper.makeSubdirs(commentfilename)
+                comments = codecs.open(commentfilename, 'wb', encoding='utf-8')
+            except IOError:
+                comments = codecs.open(str(self.imageId) + "-comments-" + self.commenttime.replace(":","-") + ".txt", 'wb', encoding='utf-8')
+                PixivHelper.get_logger().exception("Error when saving post comments: %s, file is saved to: %s.txt", commentfilename, self.imageId + "-comments-" + self.commenttime)
+            comments.write(self.commenttext)
+            print(self.commenttext + "\n")
+            comments.close()
+        
     def WriteHtml(self, html_template, useAbsolutePaths, filename):
         info = None
         try:
